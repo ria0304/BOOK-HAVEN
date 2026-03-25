@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { BarChart3, PieChart, TrendingUp, BookOpen, Clock, Star, Brain, Sparkles, Compass, Plus, Check } from 'lucide-react';
+import { BarChart3, PieChart, TrendingUp, BookOpen, Clock, Star, Brain, Sparkles, Compass, Plus, Check, Zap } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { Link } from 'react-router-dom';
 
@@ -54,6 +54,8 @@ export default function Dashboard() {
   const [analytics, setAnalytics] = useState<any>(null);
   const [drpa, setDrpa] = useState<any>(null);
   const [moodRecs, setMoodRecs] = useState<any>(null);
+  const [readingAnalytics, setReadingAnalytics] = useState<any>(null);
+  const [recAnalytics, setRecAnalytics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [updatingObsession, setUpdatingObsession] = useState(false);
   const [addedBooks, setAddedBooks] = useState<Set<string>>(new Set());
@@ -85,14 +87,18 @@ export default function Dashboard() {
 
   const fetchData = async () => {
     try {
-      const [analyticsData, drpaData, moodData] = await Promise.all([
+      const [analyticsData, drpaData, moodData, readingData, recData] = await Promise.all([
         apiFetch('/api/analytics'),
         apiFetch('/api/recommendations/drpa'),
-        apiFetch('/api/recommendations/mood')
+        apiFetch('/api/recommendations/mood'),
+        apiFetch('/api/reading/analytics'),
+        apiFetch('/api/recommendations/analytics')
       ]);
       setAnalytics(analyticsData);
       setDrpa(drpaData);
       setMoodRecs(moodData);
+      setReadingAnalytics(readingData);
+      setRecAnalytics(recData);
     } catch (error) {
       console.error('Failed to fetch dashboard data', error);
     } finally {
@@ -109,7 +115,7 @@ export default function Dashboard() {
         method: 'PUT',
         body: JSON.stringify({ obsession: newObsession || null })
       });
-      await fetchData(); // Refresh data to get new recommendations
+      await fetchData();
     } catch (error) {
       console.error('Failed to update obsession', error);
     } finally {
@@ -124,7 +130,6 @@ export default function Dashboard() {
         method: 'POST',
         body: JSON.stringify({ mood })
       });
-      // Refresh analytics to show the new mood
       const analyticsData = await apiFetch('/api/analytics');
       setAnalytics(analyticsData);
     } catch (error) {
@@ -148,6 +153,19 @@ export default function Dashboard() {
         })
       });
       setAddedBooks(prev => new Set(prev).add(book.key));
+      
+      // Track recommendation feedback
+      await apiFetch('/api/recommendations/feedback', {
+        method: 'POST',
+        body: JSON.stringify({
+          book_id: book.key,
+          recommended_by: 'drpa',
+          clicked: true
+        })
+      });
+      
+      setErrorMsg(`"${book.title}" added to your library!`);
+      setTimeout(() => setErrorMsg(null), 3000);
     } catch (error: any) {
       console.error('Failed to add book', error);
       if (error.message.includes('Already in library')) {
@@ -155,6 +173,7 @@ export default function Dashboard() {
       } else {
         setErrorMsg('Failed to add book. Please try again.');
       }
+      setTimeout(() => setErrorMsg(null), 3000);
     }
   };
 
@@ -174,7 +193,11 @@ export default function Dashboard() {
       </div>
 
       {errorMsg && (
-        <div className="max-w-2xl mx-auto mb-6 bg-red-900/50 border border-red-500/50 text-red-200 px-4 py-3 rounded-lg text-center">
+        <div className={`max-w-2xl mx-auto mb-6 px-4 py-3 rounded-lg text-center ${
+          errorMsg.includes('added') 
+            ? 'bg-green-900/50 border border-green-500/50 text-green-200'
+            : 'bg-red-900/50 border border-red-500/50 text-red-200'
+        }`}>
           {errorMsg}
         </div>
       )}
@@ -320,10 +343,9 @@ export default function Dashboard() {
           className="bg-purple-950/20 border border-purple-900/50 p-8 rounded-2xl"
         >
           <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
-            <TrendingUp className="w-5 h-5 mr-2 text-amber-400" /> Mood Tracker
+            <Zap className="w-5 h-5 mr-2 text-amber-400" /> Mood Tracker
           </h3>
           
-          {/* Mood Picker */}
           <div className="mb-8">
             <p className="text-sm text-gray-400 mb-3">How are you feeling today?</p>
             <MoodPicker onMoodSelect={logMood} />
@@ -332,7 +354,6 @@ export default function Dashboard() {
             )}
           </div>
           
-          {/* Mood Stats */}
           <div>
             <p className="text-sm text-gray-400 mb-3">Your reading moods</p>
             <div className="flex flex-wrap gap-4">
@@ -351,11 +372,94 @@ export default function Dashboard() {
         </motion.div>
       </div>
 
-      {drpa?.recommendations && drpa.recommendations.length > 0 && (
+      {/* Reading Analytics Section */}
+      {readingAnalytics && readingAnalytics.sessions && readingAnalytics.sessions.length > 0 && (
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.65 }}
+          className="bg-purple-950/20 border border-purple-900/50 p-8 rounded-2xl mb-12"
+        >
+          <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
+            <Clock className="w-5 h-5 mr-2 text-pink-400" /> Reading Analytics
+          </h3>
+          
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-purple-900/30 rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold text-white">{readingAnalytics.sessions.length}</p>
+              <p className="text-xs text-gray-400">Reading Sessions</p>
+            </div>
+            <div className="bg-purple-900/30 rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold text-white">
+                {Math.round(readingAnalytics.sessions.reduce((acc: number, s: any) => acc + (s.avg_speed || 0), 0) / readingAnalytics.sessions.length)}
+              </p>
+              <p className="text-xs text-gray-400">Avg Pages/Min</p>
+            </div>
+            <div className="bg-purple-900/30 rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold text-white">
+                {readingAnalytics.sessions.reduce((acc: number, s: any) => acc + (s.total_pages || 0), 0)}
+              </p>
+              <p className="text-xs text-gray-400">Total Pages Read</p>
+            </div>
+            <div className="bg-purple-900/30 rounded-xl p-4 text-center">
+              <p className="text-2xl font-bold text-white">{readingAnalytics.moodChanges?.length || 0}</p>
+              <p className="text-xs text-gray-400">Mood Changes</p>
+            </div>
+          </div>
+          
+          {readingAnalytics.moodChanges && readingAnalytics.moodChanges.length > 0 && (
+            <div>
+              <p className="text-sm text-gray-400 mb-3">How reading affects your mood</p>
+              <div className="space-y-2">
+                {readingAnalytics.moodChanges.slice(0, 5).map((change: any, idx: number) => (
+                  <div key={idx} className="bg-black/30 rounded-lg p-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl">{change.mood_before}</span>
+                      <span className="text-gray-400">→</span>
+                      <span className="text-2xl">{change.mood_after}</span>
+                    </div>
+                    <span className="text-sm text-gray-400">{change.count} times</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </motion.div>
+      )}
+
+      {/* Recommendation Analytics */}
+      {recAnalytics && recAnalytics.length > 0 && (
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.7 }}
+          className="bg-purple-950/20 border border-purple-900/50 p-8 rounded-2xl mb-12"
+        >
+          <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
+            <Star className="w-5 h-5 mr-2 text-amber-400" /> DRPA Performance
+          </h3>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {recAnalytics.map((rec: any) => (
+              <div key={rec.recommended_by} className="bg-black/30 rounded-xl p-4">
+                <p className="text-sm text-gray-400 mb-1">Recommendation Type</p>
+                <p className="text-lg font-semibold text-white capitalize">{rec.recommended_by}</p>
+                <div className="mt-3 space-y-1">
+                  <p className="text-xs text-gray-400">Click Rate: <span className="text-green-400">{((rec.clicks / rec.total_recommendations) * 100).toFixed(1)}%</span></p>
+                  <p className="text-xs text-gray-400">Total: {rec.total_recommendations}</p>
+                  {rec.avg_rating && <p className="text-xs text-gray-400">Avg Rating: <span className="text-amber-400">{rec.avg_rating.toFixed(1)}⭐</span></p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
+
+      {drpa?.recommendations && drpa.recommendations.length > 0 && (
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.75 }}
           className="bg-purple-950/20 border border-purple-900/50 p-8 rounded-2xl mb-12"
         >
           <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
