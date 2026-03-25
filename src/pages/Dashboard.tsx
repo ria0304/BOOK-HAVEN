@@ -4,6 +4,52 @@ import { BarChart3, PieChart, TrendingUp, BookOpen, Clock, Star, Brain, Sparkles
 import { apiFetch } from '../lib/api';
 import { Link } from 'react-router-dom';
 
+// Mood Picker Component
+function MoodPicker({ onMoodSelect, currentMood }: { onMoodSelect: (mood: string) => void; currentMood?: string }) {
+  const [selectedMood, setSelectedMood] = useState(currentMood || '');
+  
+  const moods = [
+    { emoji: '😊', label: 'Happy', color: 'bg-yellow-500/20', hoverColor: 'hover:bg-yellow-500/30' },
+    { emoji: '😢', label: 'Sad', color: 'bg-blue-500/20', hoverColor: 'hover:bg-blue-500/30' },
+    { emoji: '😐', label: 'Neutral', color: 'bg-gray-500/20', hoverColor: 'hover:bg-gray-500/30' },
+    { emoji: '❤️', label: 'Loved', color: 'bg-red-500/20', hoverColor: 'hover:bg-red-500/30' },
+    { emoji: '⚡', label: 'Excited', color: 'bg-purple-500/20', hoverColor: 'hover:bg-purple-500/30' },
+    { emoji: '☕', label: 'Cozy', color: 'bg-amber-500/20', hoverColor: 'hover:bg-amber-500/30' },
+    { emoji: '🤔', label: 'Thoughtful', color: 'bg-indigo-500/20', hoverColor: 'hover:bg-indigo-500/30' },
+    { emoji: '🎉', label: 'Celebratory', color: 'bg-pink-500/20', hoverColor: 'hover:bg-pink-500/30' },
+    { emoji: '😴', label: 'Tired', color: 'bg-slate-500/20', hoverColor: 'hover:bg-slate-500/30' },
+    { emoji: '🤯', label: 'Mind-blown', color: 'bg-orange-500/20', hoverColor: 'hover:bg-orange-500/30' },
+    { emoji: '😍', label: 'Obsessed', color: 'bg-rose-500/20', hoverColor: 'hover:bg-rose-500/30' },
+    { emoji: '🤗', label: 'Grateful', color: 'bg-teal-500/20', hoverColor: 'hover:bg-teal-500/30' },
+  ];
+
+  const handleMoodSelect = (emoji: string) => {
+    setSelectedMood(emoji);
+    onMoodSelect(emoji);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-3">
+        {moods.map((mood) => (
+          <button
+            key={mood.emoji}
+            onClick={() => handleMoodSelect(mood.emoji)}
+            className={`flex flex-col items-center p-3 rounded-xl transition-all transform hover:scale-105 ${
+              selectedMood === mood.emoji
+                ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-pink-500/25'
+                : `${mood.color} ${mood.hoverColor} border border-purple-800/30`
+            }`}
+          >
+            <span className="text-2xl mb-1">{mood.emoji}</span>
+            <span className="text-xs font-medium">{mood.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [analytics, setAnalytics] = useState<any>(null);
   const [drpa, setDrpa] = useState<any>(null);
@@ -12,6 +58,7 @@ export default function Dashboard() {
   const [updatingObsession, setUpdatingObsession] = useState(false);
   const [addedBooks, setAddedBooks] = useState<Set<string>>(new Set());
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [loggingMood, setLoggingMood] = useState(false);
 
   const obsessionOptions = [
     'Dark Romance',
@@ -23,7 +70,13 @@ export default function Dashboard() {
     'Epic Fantasy',
     'Romantasy',
     'True Crime',
-    'Literary Fiction'
+    'Literary Fiction',
+    'Psychological Thriller',
+    'Contemporary Romance',
+    'Spicy Romance',
+    'Gothic Horror',
+    'Young Adult Fantasy',
+    'Mystery'
   ];
 
   useEffect(() => {
@@ -61,6 +114,23 @@ export default function Dashboard() {
       console.error('Failed to update obsession', error);
     } finally {
       setUpdatingObsession(false);
+    }
+  };
+
+  const logMood = async (mood: string) => {
+    setLoggingMood(true);
+    try {
+      await apiFetch('/api/preferences/mood', {
+        method: 'POST',
+        body: JSON.stringify({ mood })
+      });
+      // Refresh analytics to show the new mood
+      const analyticsData = await apiFetch('/api/analytics');
+      setAnalytics(analyticsData);
+    } catch (error) {
+      console.error('Failed to log mood', error);
+    } finally {
+      setLoggingMood(false);
     }
   };
 
@@ -253,15 +323,30 @@ export default function Dashboard() {
             <TrendingUp className="w-5 h-5 mr-2 text-amber-400" /> Mood Tracker
           </h3>
           
-          <div className="flex flex-wrap gap-4">
-            {analytics?.moodCounts?.map((mood: any) => (
-              <div key={mood.mood} className="bg-purple-900/30 border border-purple-800/50 rounded-xl p-4 flex flex-col items-center justify-center min-w-[100px]">
-                <span className="text-4xl mb-2">{mood.mood}</span>
-                <span className="text-xl font-bold text-white">{mood.count}</span>
-                <span className="text-xs text-gray-400 uppercase tracking-wider mt-1">Books</span>
-              </div>
-            ))}
-            {!analytics?.moodCounts?.length && <p className="text-gray-500 text-sm">No mood data available yet. Start logging your moods!</p>}
+          {/* Mood Picker */}
+          <div className="mb-8">
+            <p className="text-sm text-gray-400 mb-3">How are you feeling today?</p>
+            <MoodPicker onMoodSelect={logMood} />
+            {loggingMood && (
+              <p className="text-xs text-pink-400 mt-2 text-center">Logging your mood...</p>
+            )}
+          </div>
+          
+          {/* Mood Stats */}
+          <div>
+            <p className="text-sm text-gray-400 mb-3">Your reading moods</p>
+            <div className="flex flex-wrap gap-4">
+              {analytics?.moodCounts?.map((mood: any) => (
+                <div key={mood.mood} className="bg-purple-900/30 border border-purple-800/50 rounded-xl p-4 flex flex-col items-center justify-center min-w-[100px]">
+                  <span className="text-4xl mb-2">{mood.mood}</span>
+                  <span className="text-xl font-bold text-white">{mood.count}</span>
+                  <span className="text-xs text-gray-400 uppercase tracking-wider mt-1">Books</span>
+                </div>
+              ))}
+              {!analytics?.moodCounts?.length && (
+                <p className="text-gray-500 text-sm">No mood data yet. Pick a mood above to get started!</p>
+              )}
+            </div>
           </div>
         </motion.div>
       </div>
@@ -276,7 +361,7 @@ export default function Dashboard() {
           <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
             <Star className="w-5 h-5 mr-2 text-amber-400" /> DRPA Recommendations
           </h3>
-          <p className="text-gray-400 mb-6 text-sm">Curated for your current mood and obsession</p>
+          <p className="text-gray-400 mb-6 text-sm">Curated based on your current obsession: <span className="text-pink-400 font-medium">{drpa?.obsession}</span></p>
           
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
             {drpa.recommendations.map((book: any) => (
