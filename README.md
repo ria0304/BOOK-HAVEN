@@ -1,39 +1,47 @@
-Overview
+📚 Book Haven+
+🌟 Overview
 
-Book Haven+ is a full-stack reading platform that helps users discover, track, and manage books while receiving personalized recommendations based on reading behavior, mood, and preferences.
+Book Haven+ is a full-stack reading platform designed to help users discover, track, and manage books while receiving personalized recommendations based on their reading behavior, mood, and preferences.
 
-It combines book discovery, a personal reading tracker, a private book vault, and intelligent recommendation logic to create a modern and engaging reading experience.
+It combines:
+
+🔍 Book discovery
+📚 Personal library management
+📊 Reading analytics
+🧠 Intelligent recommendation system
+
+…to create a modern and engaging reading experience.
 
 ✨ Features
 🔍 Book Discovery
 Search books using Open Library API
 View book details, covers, and metadata
-Save books to your library
+Save books to your personal library
 📚 Personal Library
 My Collection
 Wishlist
-Organized book management
+Organized book management system
 📊 Reading Tracker
 Want to Read
 Currently Reading
 Completed
 ⭐ Ratings & Notes
 Rate books (1–5 ⭐)
-Add personal notes
+Add personal notes and reflections
 📦 Personal Book Vault
-Upload PDF and EPUB files
-Read books directly in the browser
+Upload PDF & EPUB files
 Private storage system
+Access your books anytime
 📖 In-App Reading
 EPUB support using epub.js
-Smooth reading experience
+Smooth, browser-based reading experience
 🔗 Smart Availability
 Read via Open Library / Internet Archive
-Buy option via Kindle
+Buy books via Kindle integration
 📊 Dashboard
 Reading analytics
 Personalized insights
-Recommendation system
+Activity tracking
 🎯 Current Obsession
 Detects most-read genre
 Recommends books accordingly
@@ -51,17 +59,17 @@ Secure logout
 🧠 Core Concept
 🔥 Dynamic Reading Preference Algorithm (DRPA)
 
-A custom recommendation system that analyzes:
+A custom-built recommendation engine that analyzes:
 
-Reading patterns
-Genre preferences
-Mood trends
-User behavior
+📖 Reading patterns
+🎯 Genre preferences
+🎭 Mood trends
+🧠 User behavior
 
-👉 Generates personalized book suggestions and insights.
+👉 Generates highly personalized book recommendations and insights.
 
 🧱 Tech Stack
-Frontend
+💻 Frontend
 React (v18 + TypeScript)
 Vite
 React Router
@@ -69,22 +77,17 @@ Tailwind CSS
 Framer Motion
 Lucide React
 epub.js
-
- 
- Backend
- 
+⚙️ Backend
 Node.js
 Express
-
- Authentication
+🔐 Authentication
 JSON Web Tokens (JWT)
 bcrypt
-
- File Handling
-Multer (for PDF/EPUB uploads)
- Database
+📂 File Handling
+Multer (PDF/EPUB uploads)
+🗄️ Database
 SQLite
 better-sqlite3
 🔗 External APIs
-Open Library API (books, covers, metadata)
-TMDB API (movie data, ratings, posters)
+📚 Open Library API → Books, covers, metadata
+🎬 TMDB API → Movie data, ratings, posters
