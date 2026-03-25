@@ -57,11 +57,14 @@ db.exec(`
     reading_frequency TEXT,
     preferred_mood TEXT,
     favorite_types TEXT,
+    current_obsession TEXT,
+    last_mood TEXT,
+    last_mood_updated DATETIME,
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
 `);
 
-// Add new columns to users table safely
+// Helper function to safely add columns
 const addColumn = (table: string, column: string, type: string) => {
   try {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
@@ -72,10 +75,15 @@ const addColumn = (table: string, column: string, type: string) => {
   }
 };
 
+// Add columns to users table
 addColumn('users', 'name', 'TEXT');
 addColumn('users', 'gender', 'TEXT');
 addColumn('users', 'birthday', 'TEXT');
 addColumn('users', 'onboarded', 'BOOLEAN DEFAULT 0');
+
+// Add columns to user_preferences table
 addColumn('user_preferences', 'current_obsession', 'TEXT');
+addColumn('user_preferences', 'last_mood', 'TEXT');
+addColumn('user_preferences', 'last_mood_updated', 'DATETIME');
 
 export default db;
