@@ -67,7 +67,7 @@ async function startServer() {
 
   // --- API Routes ---
 
-  // Auth
+  // Auth (unchanged)
   app.post('/api/auth/register', async (req, res) => {
     const { username, email, password, name, gender, birthday } = req.body;
     try {
@@ -164,7 +164,7 @@ async function startServer() {
     }
   });
 
-  // Books (Library) – now ordered by newest first
+  // Books (Library) – newest first
   app.get('/api/library', authenticateToken, (req: any, res) => {
     const stmt = db.prepare(`
       SELECT ub.*, b.title, b.author, b.cover_url, b.open_library_id
@@ -337,11 +337,12 @@ async function startServer() {
     }
   });
 
-  // ========== MONTHLY READING ACTIVITY ==========
+  // ========== MONTHLY READING ACTIVITY (includes vault books) ==========
   app.get('/api/reading/monthly-books', authenticateToken, (req: any, res) => {
     const { year } = req.query;
     const currentYear = year ? parseInt(year as string) : new Date().getFullYear();
     try {
+      // Books completed from library (status='completed')
       const completedStmt = db.prepare(`
         SELECT 
           strftime('%m', updated_at) as month,
@@ -354,6 +355,8 @@ async function startServer() {
         ORDER BY month ASC
       `);
       const completedBooks = completedStmt.all(req.user.id, String(currentYear));
+
+      // Books added from library
       const addedStmt = db.prepare(`
         SELECT 
           strftime('%m', created_at) as month,
@@ -364,6 +367,8 @@ async function startServer() {
         GROUP BY strftime('%m', created_at)
       `);
       const addedBooks = addedStmt.all(req.user.id, String(currentYear));
+
+      // Reading sessions (both library and vault)
       const sessionsStmt = db.prepare(`
         SELECT 
           strftime('%m', session_start) as month,
@@ -375,27 +380,56 @@ async function startServer() {
         GROUP BY strftime('%m', session_start)
       `);
       const readingSessions = sessionsStmt.all(req.user.id, String(currentYear));
+
+      // Books read from vault (distinct uploaded_books with at least one session in that month)
+      const vaultBooksReadStmt = db.prepare(`
+        SELECT 
+          strftime('%m', session_start) as month,
+          COUNT(DISTINCT uploaded_book_id) as vault_books_read
+        FROM reading_sessions
+        WHERE user_id = ? 
+          AND uploaded_book_id IS NOT NULL
+          AND strftime('%Y', session_start) = ?
+        GROUP BY strftime('%m', session_start)
+      `);
+      const vaultBooksRead = vaultBooksReadStmt.all(req.user.id, String(currentYear));
+
+      // Create map for all 12 months
       const monthlyMap = new Map();
       for (let i = 1; i <= 12; i++) {
         const monthStr = i.toString().padStart(2, '0');
         monthlyMap.set(monthStr, {
           month: i,
           books_completed: 0,
+          vault_books_read: 0,
           books_added: 0,
           reading_sessions: 0,
           reading_days: 0,
         });
       }
+
+      // Fill in library completed books
       completedBooks.forEach((book: any) => {
         const monthStr = book.month.padStart(2, '0');
         const existing = monthlyMap.get(monthStr);
         if (existing) existing.books_completed = book.books_completed;
       });
+
+      // Fill in vault books read
+      vaultBooksRead.forEach((v: any) => {
+        const monthStr = v.month.padStart(2, '0');
+        const existing = monthlyMap.get(monthStr);
+        if (existing) existing.vault_books_read = v.vault_books_read;
+      });
+
+      // Fill in added books
       addedBooks.forEach((book: any) => {
         const monthStr = book.month.padStart(2, '0');
         const existing = monthlyMap.get(monthStr);
         if (existing) existing.books_added = book.books_added;
       });
+
+      // Fill in reading sessions
       readingSessions.forEach((session: any) => {
         const monthStr = session.month.padStart(2, '0');
         const existing = monthlyMap.get(monthStr);
@@ -404,16 +438,26 @@ async function startServer() {
           existing.reading_days = session.reading_days;
         }
       });
+
+      // Convert to array sorted by month
       const monthlyData = Array.from(monthlyMap.values()).sort((a, b) => a.month - b.month);
+
+      // Totals
       const totalBooksCompleted = completedBooks.reduce((sum, b) => sum + b.books_completed, 0);
+      const totalVaultBooksRead = vaultBooksRead.reduce((sum, v) => sum + v.vault_books_read, 0);
       const totalBooksAdded = addedBooks.reduce((sum, b) => sum + b.books_added, 0);
       const totalReadingSessions = readingSessions.reduce((sum, s) => sum + s.reading_sessions, 0);
       const totalReadingDays = readingSessions.reduce((sum, s) => sum + s.reading_days, 0);
+
       res.json({
         success: true,
-        monthlyData,
+        monthlyData: monthlyData.map(m => ({
+          ...m,
+          total_books_read: m.books_completed + m.vault_books_read,
+        })),
         summary: {
           totalBooksCompleted,
+          totalVaultBooksRead,
           totalBooksAdded,
           totalReadingSessions,
           totalReadingDays,
@@ -530,11 +574,11 @@ async function startServer() {
     }
   });
 
-  // ========== GOODREADS SEARCH (ENHANCED: TYPE‑AWARE + FULL PHRASE) ==========
+  // ========== GOODREADS SEARCH (ENHANCED) ==========
   app.get('/api/books/goodreads-search', authenticateToken, async (req: any, res: any) => {
     const rawQuery = req.query.q ?? req.query.query ?? '';
     const normalizedQuery = String(rawQuery).trim();
-    const type = (req.query.type as string) ?? 'all'; // 'book', 'author', 'genre', or 'all'
+    const type = (req.query.type as string) ?? 'all';
     let limit = Number.parseInt(String(req.query.limit ?? 50), 10);
     limit = Math.min(limit, 100);
 
@@ -551,8 +595,6 @@ async function startServer() {
       }
 
       let results: any[] = [];
-
-      // Build FTS match string with optional field restriction
       let ftsMatch = '';
       const phraseQuery = normalizedQuery.includes(' ') ? `"${normalizedQuery}"` : `${normalizedQuery}*`;
       switch (type) {
@@ -569,7 +611,6 @@ async function startServer() {
           ftsMatch = phraseQuery;
       }
 
-      // Try FTS5 first
       try {
         const ftsStmt = db.prepare(`
           SELECT 
@@ -590,13 +631,10 @@ async function startServer() {
         console.log('FTS5 not ready, using LIKE fallback');
       }
 
-      // Fallback to LIKE if FTS returned nothing or failed
       if (results.length === 0) {
         const words = normalizedQuery.split(/\s+/).filter(w => w.length > 0);
         const conditions = [];
         const params = [];
-
-        // Whole phrase match on the relevant fields based on type
         const phrasePattern = `%${normalizedQuery}%`;
         if (type === 'book' || type === 'all') {
           conditions.push(`title LIKE ?`);
@@ -610,14 +648,10 @@ async function startServer() {
           conditions.push(`genres LIKE ?`);
           params.push(phrasePattern);
         }
-
-        // If still no conditions, add a catch‑all (should not happen)
         if (conditions.length === 0) {
           conditions.push(`title LIKE ?`);
           params.push(phrasePattern);
         }
-
-        // Add individual word matches for broader search
         for (const word of words) {
           const wordPattern = `%${word}%`;
           if (type === 'book' || type === 'all') {
@@ -633,7 +667,6 @@ async function startServer() {
             params.push(wordPattern);
           }
         }
-
         const sql = `
           SELECT 
             id, title, author, 
@@ -691,15 +724,12 @@ async function startServer() {
           message: 'Run python import_goodreads_fixed.py first'
         });
       }
-
       const countStmt = db.prepare("SELECT COUNT(*) as count FROM goodreads_books");
       const count = countStmt.get() as any;
-
       const sampleStmt = db.prepare(
         "SELECT title, author FROM goodreads_books WHERE title IS NOT NULL LIMIT 5"
       );
       const sample = sampleStmt.all();
-
       res.json({
         success: true,
         totalBooks: count.count,
@@ -823,7 +853,7 @@ async function startServer() {
     }
   });
 
-  // DRPA & Recommendations
+  // ========== DRPA & RECOMMENDATIONS (IMPROVED) ==========
   app.get('/api/recommendations/drpa', authenticateToken, async (req: any, res) => {
     try {
       const prefStmt = db.prepare('SELECT * FROM user_preferences WHERE user_id = ?');
@@ -836,6 +866,7 @@ async function startServer() {
         ORDER BY ub.updated_at DESC LIMIT 20
       `);
       const history = historyStmt.all(req.user.id) as any[];
+
       let obsession = prefs?.current_obsession || 'Exploring';
       if (!prefs?.current_obsession) {
         if (history.length > 0) {
@@ -855,61 +886,38 @@ async function startServer() {
           if (genres.length > 0) obsession = `Craving ${genres[0]}`;
         }
       }
+
       let personality = 'The Newcomer';
       if (history.length > 10) personality = 'The Voracious Reader';
       else if (history.length > 5) personality = 'The Steady Scholar';
       else if (prefs && prefs.reading_frequency === 'Daily') personality = 'The Daily Devourer';
       else if (prefs && prefs.preferred_mood === 'Thought-provoking') personality = 'The Deep Thinker';
-      let searchQuery = 'bestselling fiction 2024 2025';
-      const obsessionMap: Record<string, string> = {
-        'Dark Romance': 'dark romance bestselling books 2024 2025 haunting adeline cat and mouse duet',
-        'Romantasy': 'romantasy fantasy romance bestsellers 2024 sarah j maas fourth wing',
-        'Dark Fantasy': 'dark fantasy grimdark books bestsellers 2024 joe abercrombie',
-        'Cyberpunk': 'cyberpunk science fiction bestsellers 2024 william gibson neuromancer',
-        'Historical Fiction': 'historical fiction award winning books 2024',
-        'Sci-Fi Thriller': 'science fiction thriller bestsellers 2024 blake crouch',
-        'Cozy Mystery': 'cozy mystery books bestsellers 2024',
-        'Epic Fantasy': 'epic fantasy bestsellers 2024 brandon sanderson',
-        'True Crime': 'true crime bestselling books 2024',
-        'Literary Fiction': 'literary fiction award winning books 2024',
-        'Psychological Thriller': 'psychological thriller bestsellers 2024 freida mcfadden',
-        'Contemporary Romance': 'contemporary romance bestsellers 2024 emily henry',
-        'Spicy Romance': 'spicy romance steamy books bestsellers 2024',
-        'Gothic Horror': 'gothic horror books bestsellers 2024',
-        'Young Adult Fantasy': 'young adult fantasy bestsellers 2024',
-        'Mystery': 'mystery thriller bestsellers 2024',
-      };
-      if (prefs?.current_obsession && obsessionMap[prefs.current_obsession]) {
-        searchQuery = obsessionMap[prefs.current_obsession];
-      } else if (prefs?.current_obsession) {
-        searchQuery = `${prefs.current_obsession} bestselling books 2024`;
+
+      // Build a clean search query based on obsession or genre
+      let searchQuery = '';
+      if (prefs?.current_obsession) {
+        searchQuery = `${prefs.current_obsession} bestsellers`;
       } else if (prefs && prefs.favorite_genres) {
         const genres = JSON.parse(prefs.favorite_genres);
         if (genres.length > 0) {
-          const genreMap: Record<string, string> = {
-            Fantasy: 'epic fantasy bestsellers 2024',
-            'Sci-Fi': 'science fiction bestsellers 2024',
-            Romance: 'romance novels bestsellers 2024',
-            Thriller: 'thriller suspense bestsellers 2024',
-            Mystery: 'mystery books bestsellers 2024',
-            Horror: 'horror books bestsellers 2024 stephen king',
-            'Non-Fiction': 'bestselling non-fiction 2024',
-            Historical: 'historical fiction bestsellers 2024',
-            Biography: 'bestselling biographies 2024',
-          };
-          searchQuery = genreMap[genres[0]] || `${genres[0]} bestselling books 2024`;
+          searchQuery = `${genres[0]} bestsellers`;
         }
       }
+      if (!searchQuery) {
+        searchQuery = 'bestselling fiction 2024';
+      }
+
       let recommendations = [];
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 8000);
         const response = await fetch(
-          `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(searchQuery)}&maxResults=8&orderBy=relevance`,
+          `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(searchQuery)}&maxResults=12&orderBy=relevance`,
           { signal: controller.signal }
         );
         clearTimeout(timeoutId);
         const data = await response.json();
+
         recommendations = (data.items || [])
           .map((item: any) => ({
             key: item.id,
@@ -920,6 +928,7 @@ async function startServer() {
           }))
           .filter((book: any) => book.title && book.author !== 'Unknown' && book.title.length > 3)
           .slice(0, 6);
+
         if (recommendations.length === 0) {
           const fallbackResponse = await fetch(
             'https://www.googleapis.com/books/v1/volumes?q=bestselling%20fiction%202024&maxResults=6'
@@ -935,6 +944,7 @@ async function startServer() {
       } catch (e) {
         console.error('Failed to fetch recommendations', e);
       }
+
       res.json({
         obsession,
         personality,
